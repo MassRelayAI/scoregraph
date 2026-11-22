@@ -1,0 +1,41 @@
+{
+  "schema": "rule/1",
+  "id": "nav.every-door-served",
+  "version": 1,
+  "title": "every menu entry answers (no dead door) for the role",
+  "family": "nav",
+  "kind": "deterministic",
+  "mode": "blocking",
+  "weight": 3,
+  "check": {
+    "all": [
+      {
+        "fact": "nav.doors_total",
+        "op": "gt",
+        "value": 0
+      },
+      {
+        "fact": "nav.dead_doors",
+        "op": "eq",
+        "value": 0
+      }
+    ]
+  },
+  "red": {
+    "facts": {
+      "nav": {
+        "doors_total": 12,
+        "dead_doors": 1
+      }
+    }
+  },
+  "green": {
+    "facts": {
+      "nav": {
+        "doors_total": 12,
+        "dead_doors": 0
+      }
+    }
+  },
+  "owner": "shell/menu"
+}

@@ -8,11 +8,12 @@
 //! - `accept` refuses a rule whose self-test fails, a rule that passes on the product today (`not-reproduced`, recorded on the
 //!   feedback), a rule with no observation to judge by, and a new version that loosens the old one without a decision.
 //! - `retire` needs a decision record in the ruleset; the rule file stays, state `retired`.
+//!
 //! Feedback records are never edited: every status change is a `feedback-event` row on the chain.
 use crate::ledger::Ledger;
 use crate::model::{Decision, DecisionAction, Feedback, FeedbackStatus, Outcome, Rule, RuleState};
 use crate::redact;
-use crate::ruleset::{resolve_fixture, self_test_rule, Ruleset};
+use crate::ruleset::{is_looser, resolve_fixture, self_test_rule, Ruleset};
 use crate::util::canonical;
 use crate::{invalid, refused, Result};
 use serde::Serialize;
@@ -163,10 +164,13 @@ pub fn accept(ledger: &mut Ledger, ruleset_dir: &Path, draft: &Value, product: &
         if rule.version <= old.version {
             return refused(format!("rule {}: version {} is not above the ruleset's {}", rule.id, rule.version, old.version));
         }
-        let old_red = &rs.fixtures[&rule.id].0;
+        let (or, og) = &rs.fixtures[&rule.id];
+        let observed: Vec<_> = ledger.observations(product, version)?.into_iter().filter(|o| o.rule.id == rule.id).filter_map(|o| o.facts).collect();
+        let mut probes: Vec<&serde_json::Map<String, Value>> = vec![or, og, &fx.0, &fx.1];
+        probes.extend(observed.iter());
         let allowed = rule.decision.as_ref().and_then(|d| rs.decision(d)).is_some_and(|d| d.rule == rule.id && d.action == DecisionAction::Loosen);
-        if rule.eval(old_red) != Outcome::Fail && !allowed {
-            return refused(format!("rule {}: version {} lets the old red fixture through (a loosening); it needs a loosen decision", rule.id, rule.version));
+        if is_looser(old, &rule, &probes) && !allowed {
+            return refused(format!("rule {}: version {} lets through what version {} held back (a loosening); it needs a loosen decision", rule.id, rule.version, old.version));
         }
     }
     let obs: Vec<_> = ledger.observations(product, version)?.into_iter().filter(|o| o.rule.id == rule.id).collect();

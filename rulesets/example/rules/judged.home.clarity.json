@@ -1,0 +1,30 @@
+{
+  "schema": "rule/1",
+  "id": "judged.home.clarity",
+  "version": 1,
+  "title": "the home screen reads at least as clearly as the reference set",
+  "family": "judged",
+  "kind": "judged",
+  "mode": "advisory",
+  "weight": 1,
+  "check": {
+    "fact": "verdict",
+    "op": "in",
+    "value": [
+      "better",
+      "same"
+    ]
+  },
+  "red": {
+    "facts": {
+      "verdict": "worse"
+    }
+  },
+  "green": {
+    "facts": {
+      "verdict": "same"
+    }
+  },
+  "owner": "screens/home",
+  "judge_digest": "example-judge-v1"
+}

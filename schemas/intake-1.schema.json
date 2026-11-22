@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/MassRelayAI/scoregraph/schemas/intake-1.schema.json",
+  "title": "intake/1",
+  "description": "What a product's own feedback door exports. No other field is accepted: a door that sends an email, a name or a device id is refused, not filtered.",
+  "type": "object",
+  "required": ["schema", "product", "submitted_at", "text"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "intake/1"},
+    "product": {"type": "string", "minLength": 1},
+    "product_version": {"type": "string"},
+    "submitted_at": {"type": "string"},
+    "surface": {"type": "string"},
+    "text": {"type": "string"},
+    "rating": {"type": "number"},
+    "source": {"enum": ["customer", "tester", "founder"], "default": "customer"},
+    "reporter_class": {"type": "string"},
+    "context": {"type": "object", "additionalProperties": {"type": "string"}},
+    "links": {"type": "array", "items": {"type": "string"}},
+    "client_ref": {"type": "string", "description": "the product's own opaque id, never an account id or an email"}
+  }
+}

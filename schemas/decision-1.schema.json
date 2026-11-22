@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/MassRelayAI/scoregraph/schemas/decision-1.schema.json",
+  "title": "decision/1",
+  "description": "The only thing that lets a rule be loosened or retired, or a judged rule block. For the gate it must already be on the base ruleset.",
+  "type": "object",
+  "required": ["schema", "id", "rule", "action", "why", "decided_by", "decided_at"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "decision/1"},
+    "id": {"type": "string", "minLength": 1},
+    "rule": {"type": "string"},
+    "action": {"enum": ["retire", "loosen", "promote"]},
+    "why": {"type": "string", "minLength": 1},
+    "decided_by": {"type": "string"},
+    "decided_at": {"type": "string"},
+    "superseded_by": {"type": "string"}
+  }
+}

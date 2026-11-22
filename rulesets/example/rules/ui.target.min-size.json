@@ -1,0 +1,21 @@
+{
+  "schema": "rule/1",
+  "id": "ui.target.min-size",
+  "version": 1,
+  "title": "every tap target is at least 44 px on its short side",
+  "family": "ui",
+  "kind": "deterministic",
+  "mode": "blocking",
+  "weight": 3,
+  "check": {
+    "fact": "target.min_px",
+    "op": "ge",
+    "value": 44
+  },
+  "red": "fixtures/ui.target.min-size.red.json",
+  "green": "fixtures/ui.target.min-size.green.json",
+  "owner": "screens/home",
+  "source_feedback": [
+    "fb-example-0001"
+  ]
+}

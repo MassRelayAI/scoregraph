@@ -1,0 +1,44 @@
+{
+  "schema": "rule/1",
+  "id": "feature.export.csv",
+  "version": 1,
+  "title": "CSV export returns rows with the documented columns",
+  "family": "feature",
+  "kind": "deterministic",
+  "mode": "blocking",
+  "weight": 3,
+  "check": {
+    "all": [
+      {
+        "fact": "export.rows",
+        "op": "ge",
+        "value": 1
+      },
+      {
+        "fact": "export.columns_match",
+        "op": "eq",
+        "value": true
+      }
+    ]
+  },
+  "red": {
+    "facts": {
+      "export": {
+        "rows": 0,
+        "columns_match": true
+      }
+    }
+  },
+  "green": {
+    "facts": {
+      "export": {
+        "rows": 5,
+        "columns_match": true
+      }
+    }
+  },
+  "owner": "modules/export",
+  "features": [
+    "export.csv"
+  ]
+}

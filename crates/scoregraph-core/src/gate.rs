@@ -16,7 +16,7 @@
 //! | 12 | coverage dropped (a skipped check is not a pass) |
 //! | 13 | a rule was loosened, retired or removed without a decision on the base |
 //!
-//! When several reasons block, the code is the first of 13, 10, 11, 12.
+//! When several reasons block, the code is the first of 13, 10, 12, 11 (a skipped check explains a drop, so it is named first).
 use crate::model::{Mode, Observation};
 use crate::ruleset::{loosenings, strictest_mode, DropPolicy, Ruleset};
 use crate::score::{score, Input, Score};
@@ -30,7 +30,8 @@ pub const EXIT_BLOCKING_RULE: i32 = 10;
 pub const EXIT_SCORE_DROP: i32 = 11;
 pub const EXIT_COVERAGE_DROP: i32 = 12;
 pub const EXIT_GAMING: i32 = 13;
-const PRIORITY: [i32; 4] = [EXIT_GAMING, EXIT_BLOCKING_RULE, EXIT_SCORE_DROP, EXIT_COVERAGE_DROP];
+// a skipped check explains a score drop, so coverage is named before the drop
+const PRIORITY: [i32; 4] = [EXIT_GAMING, EXIT_BLOCKING_RULE, EXIT_COVERAGE_DROP, EXIT_SCORE_DROP];
 const EPS: f64 = 1e-9;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -129,7 +130,13 @@ pub fn gate(g: &GateInput) -> Result<Report> {
     let bd = g.base_rules.digest();
     let hd = g.head_rules.digest();
     let mut reasons = vec![];
-    for l in loosenings(g.base_rules, g.head_rules) {
+    let mut observed: std::collections::BTreeMap<String, Vec<serde_json::Map<String, serde_json::Value>>> = Default::default();
+    for o in g.base_obs.iter().chain(g.head_obs) {
+        if let Some(f) = &o.facts {
+            observed.entry(o.rule.id.clone()).or_default().push(f.clone());
+        }
+    }
+    for l in loosenings(g.base_rules, g.head_rules, &observed) {
         if !l.allowed {
             let d = l.decision.map(|d| format!(" (decision {d} is not on the base for this rule)")).unwrap_or_else(|| " without a decision record".into());
             reasons.push(block(EXIT_GAMING, "-", format!("rule {} {}{d}", l.rule, l.what)));
@@ -261,7 +268,7 @@ mod tests {
         let r = run(&f, &bo, &ho);
         assert_eq!(r.exit, EXIT_GAMING, "{}", render(&r));
         // and under the base ruleset the regression is visible as well
-        assert!(r.reasons.iter().any(|x| x.code == EXIT_BLOCKING_RULE && x.under == &f.base.digest()[..12]), "{}", render(&r));
+        assert!(r.reasons.iter().any(|x| x.code == EXIT_BLOCKING_RULE && x.under == f.base.digest()[..12]), "{}", render(&r));
         // with a decision already on the base, the loosening is allowed; the regression under base rules still blocks
         loose["decision"] = json!("d-7");
         let f = fx(&base, &[decision("d-7", "ui.a", "loosen")], &[loose, rule("nav.a", "nav", 10, "warn")]);

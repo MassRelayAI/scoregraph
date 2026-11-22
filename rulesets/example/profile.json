@@ -1,0 +1,14 @@
+{
+  "family_weights": {
+    "feature": 2,
+    "ui": 1,
+    "nav": 1,
+    "flow": 1.5,
+    "quality": 0.5,
+    "judged": 0.5
+  },
+  "family_drop": {
+    "judged": "warn"
+  },
+  "overclaim_penalty": 0
+}

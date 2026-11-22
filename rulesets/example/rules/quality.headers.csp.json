@@ -1,0 +1,27 @@
+{
+  "schema": "rule/1",
+  "id": "quality.headers.csp",
+  "version": 1,
+  "title": "a content security policy header is served",
+  "family": "quality",
+  "kind": "deterministic",
+  "mode": "advisory",
+  "weight": 1,
+  "check": {
+    "fact": "headers.csp",
+    "op": "exists"
+  },
+  "red": {
+    "facts": {
+      "headers": {}
+    }
+  },
+  "green": {
+    "facts": {
+      "headers": {
+        "csp": "default-src 'self'"
+      }
+    }
+  },
+  "owner": "edge"
+}

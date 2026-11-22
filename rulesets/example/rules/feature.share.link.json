@@ -1,0 +1,33 @@
+{
+  "schema": "rule/1",
+  "id": "feature.share.link",
+  "version": 1,
+  "title": "a shared link can be revoked",
+  "family": "feature",
+  "kind": "deterministic",
+  "mode": "warn",
+  "weight": 1,
+  "check": {
+    "fact": "share.revocable",
+    "op": "eq",
+    "value": true
+  },
+  "red": {
+    "facts": {
+      "share": {
+        "revocable": false
+      }
+    }
+  },
+  "green": {
+    "facts": {
+      "share": {
+        "revocable": true
+      }
+    }
+  },
+  "owner": "modules/share",
+  "features": [
+    "share.link"
+  ]
+}

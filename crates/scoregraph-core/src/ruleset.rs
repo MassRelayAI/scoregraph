@@ -48,13 +48,16 @@ impl Profile {
     }
 }
 
+/// A rule's resolved (red facts, green facts).
+pub type Fixtures = (Map<String, Value>, Map<String, Value>);
+
 #[derive(Debug, Clone)]
 pub struct Ruleset {
     pub dir: PathBuf,
     /// Every rule file, by id (active, draft and retired).
     pub rules: BTreeMap<String, Rule>,
     /// Resolved fixtures per rule id: (red facts, green facts).
-    pub fixtures: BTreeMap<String, (Map<String, Value>, Map<String, Value>)>,
+    pub fixtures: BTreeMap<String, Fixtures>,
     pub decisions: Vec<Decision>,
     pub profile: Profile,
 }
@@ -185,7 +188,7 @@ impl Ruleset {
     }
 }
 
-pub fn self_test_rule(r: &Rule, fx: &(Map<String, Value>, Map<String, Value>)) -> SelfTest {
+pub fn self_test_rule(r: &Rule, fx: &Fixtures) -> SelfTest {
     let red = r.eval(&fx.0);
     let green = r.eval(&fx.1);
     SelfTest { rule: r.id.clone(), version: r.version, red, green, ok: red == Outcome::Fail && green == Outcome::Pass }
@@ -202,9 +205,16 @@ pub struct Loosening {
     pub allowed: bool,
 }
 
+/// True when `new` lets through something `old` held back, measured on probes: a fact set where `old` fails and `new` passes or
+/// is partial, or `old` is partial and `new` passes. The probes are both rules' fixtures plus any observed facts given.
+pub fn is_looser(old: &Rule, new: &Rule, probes: &[&Map<String, Value>]) -> bool {
+    probes.iter().any(|f| matches!((old.eval(f), new.eval(f)), (Outcome::Fail, Outcome::Pass | Outcome::Partial) | (Outcome::Partial, Outcome::Pass)))
+}
+
 /// Compare a head ruleset with its trusted base. A loosening is allowed only by a decision that is ALREADY in the base's
-/// `decisions.jsonl` (a head cannot approve its own loosening) and names this rule with a matching action.
-pub fn loosenings(base: &Ruleset, head: &Ruleset) -> Vec<Loosening> {
+/// `decisions.jsonl` (a head cannot approve its own loosening) and names this rule with a matching action. `observed` holds facts
+/// from real observations per rule id, so a threshold moved just past the fixtures but onto the product is still caught.
+pub fn loosenings(base: &Ruleset, head: &Ruleset, observed: &BTreeMap<String, Vec<Map<String, Value>>>) -> Vec<Loosening> {
     let mut out = vec![];
     let allowed_by = |rule: &str, d: Option<&String>, action: DecisionAction| -> (Option<String>, bool) {
         match d {
@@ -238,9 +248,12 @@ pub fn loosenings(base: &Ruleset, head: &Ruleset) -> Vec<Loosening> {
             out.push(Loosening { rule: b.id.clone(), what: "changed-without-version".into(), decision: None, allowed: false });
             continue;
         }
-        // the easy direction, measured: the head rule lets the base rule's red fixture through
-        let base_red = &base.fixtures[&b.id].0;
-        if h.eval(base_red) != Outcome::Fail {
+        // the easy direction, measured: the head rule lets through a fixture or an observed fact set the base rule fails
+        let (br, bg) = &base.fixtures[&b.id];
+        let (hr, hg) = &head.fixtures[&b.id];
+        let mut probes: Vec<&Map<String, Value>> = vec![br, bg, hr, hg];
+        probes.extend(observed.get(&b.id).into_iter().flatten());
+        if is_looser(b, h, &probes) {
             push(&mut out, "check-loosened", allowed_by(&b.id, h.decision.as_ref(), DecisionAction::Loosen));
         }
         if h.weight < b.weight {
@@ -292,6 +305,7 @@ pub(crate) mod testkit {
 }
 
 #[cfg(test)]
+#[allow(clippy::cloned_ref_to_slice_refs)]
 mod tests {
     use super::testkit::*;
     use super::*;
@@ -362,7 +376,7 @@ mod tests {
         let (b, h) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
         write(b.path(), base_rules, base_dec);
         write(h.path(), head_rules, head_dec);
-        loosenings(&Ruleset::load(b.path()).unwrap(), &Ruleset::load(h.path()).unwrap())
+        loosenings(&Ruleset::load(b.path()).unwrap(), &Ruleset::load(h.path()).unwrap(), &BTreeMap::new())
     }
 
     #[test]
@@ -387,6 +401,31 @@ mod tests {
         let mut tight = rule("ui.a", "ui", 48, "blocking");
         tight["version"] = json!(2);
         assert!(diff(&[base], &[], &[tight], &[]).is_empty());
+    }
+
+    #[test]
+    fn a_threshold_moved_past_the_fixtures_but_onto_the_product_is_caught_by_observed_facts() {
+        let (b, h) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        write(b.path(), &[rule("ui.a", "ui", 44, "blocking")], &[]);
+        // 44 -> 32: the base red fixture (43) now passes
+        let mut loose = rule("ui.a", "ui", 32, "blocking");
+        loose["version"] = json!(2);
+        write(h.path(), &[loose], &[]);
+        let (base, head) = (Ruleset::load(b.path()).unwrap(), Ruleset::load(h.path()).unwrap());
+        assert_eq!(loosenings(&base, &head, &BTreeMap::new())[0].what, "check-loosened", "the base red fixture (43) passes the head rule");
+        // a subtler move: 44 -> 42 with base fixtures 30 / 50; only the product's 43 shows it
+        let mut b44 = rule("ui.a", "ui", 44, "blocking");
+        b44["red"] = json!({"facts": {"x": 30}});
+        b44["green"] = json!({"facts": {"x": 50}});
+        let mut h42 = b44.clone();
+        h42["version"] = json!(2);
+        h42["check"]["value"] = json!(42);
+        write(b.path(), &[b44], &[]);
+        write(h.path(), &[h42], &[]);
+        let (base, head) = (Ruleset::load(b.path()).unwrap(), Ruleset::load(h.path()).unwrap());
+        assert!(loosenings(&base, &head, &BTreeMap::new()).is_empty(), "the fixtures alone cannot see it");
+        let observed: BTreeMap<String, Vec<Map<String, Value>>> = [("ui.a".to_string(), vec![json!({"x": 43}).as_object().unwrap().clone()])].into();
+        assert_eq!(loosenings(&base, &head, &observed)[0].what, "check-loosened");
     }
 
     #[test]

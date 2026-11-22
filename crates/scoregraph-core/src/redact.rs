@@ -117,7 +117,6 @@ impl Redactor {
         for _ in 0..n {
             self.bump("phone");
         }
-        let mut out = out;
         for name in self.names.clone() {
             let re = Regex::new(&format!(r"(?i)\b{}\b", regex::escape(&name))).unwrap();
             let hits = re.find_iter(&out).count();

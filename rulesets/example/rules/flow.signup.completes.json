@@ -1,0 +1,46 @@
+{
+  "schema": "rule/1",
+  "id": "flow.signup.completes",
+  "version": 1,
+  "title": "sign-up completes with no dead end",
+  "family": "flow",
+  "kind": "deterministic",
+  "mode": "warn",
+  "weight": 2,
+  "check": {
+    "all": [
+      {
+        "fact": "flow.completed",
+        "op": "eq",
+        "value": true
+      },
+      {
+        "fact": "flow.dead_ends",
+        "op": "eq",
+        "value": 0
+      }
+    ]
+  },
+  "partial": {
+    "fact": "flow.completed",
+    "op": "eq",
+    "value": true
+  },
+  "red": {
+    "facts": {
+      "flow": {
+        "completed": false,
+        "dead_ends": 2
+      }
+    }
+  },
+  "green": {
+    "facts": {
+      "flow": {
+        "completed": true,
+        "dead_ends": 0
+      }
+    }
+  },
+  "owner": "flows/signup"
+}

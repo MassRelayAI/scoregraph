@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/MassRelayAI/scoregraph/schemas/score-1.schema.json",
+  "title": "score/1",
+  "description": "One score row: a product version under one ruleset digest. Scores are fractions 0..1, rounded to six decimals. In scores.jsonl each line also carries `prev`, the sha-256 of the line before.",
+  "type": "object",
+  "required": ["schema", "product", "version", "ruleset_digest", "at", "product_score", "families", "rules"],
+  "properties": {
+    "schema": {"const": "score/1"},
+    "product": {"type": "string"},
+    "version": {"type": "string"},
+    "ruleset_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "at": {"type": "string"},
+    "product_score": {"type": ["number", "null"]},
+    "product_floor": {"type": "number"},
+    "product_band": {"type": "number"},
+    "coverage": {"type": "number"},
+    "net": {"type": ["number", "null"]},
+    "families": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["score", "floor", "coverage", "band", "measured", "applicable", "weight"],
+        "properties": {
+          "score": {"type": ["number", "null"]},
+          "floor": {"type": "number"},
+          "coverage": {"type": "number"},
+          "band": {"type": "number"},
+          "measured": {"type": "integer"},
+          "applicable": {"type": "integer"},
+          "weight": {"type": "number"}
+        }
+      }
+    },
+    "rules": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["v", "family", "mode", "letter", "score", "band"],
+        "properties": {
+          "v": {"type": "integer"},
+          "family": {"type": "string"},
+          "mode": {"type": "string"},
+          "letter": {"enum": ["pass", "partial", "fail", "unmeasured", "blocked"]},
+          "score": {"type": ["number", "null"]},
+          "band": {"type": "number"},
+          "contexts": {"type": "integer"},
+          "assertions": {"type": "integer"}
+        }
+      }
+    },
+    "counts": {"type": "object", "additionalProperties": {"type": "integer"}},
+    "claims": {
+      "type": "object",
+      "properties": {
+        "features": {"type": "integer"},
+        "proven_pct": {"type": "number"},
+        "proven": {"type": "array", "items": {"type": "string"}},
+        "overclaims": {"type": "array", "items": {"type": "string"}},
+        "unproven": {"type": "array", "items": {"type": "string"}},
+        "underclaims": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "stamps": {"type": "array", "items": {"type": "string"}},
+    "prev": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

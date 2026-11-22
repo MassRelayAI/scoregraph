@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/MassRelayAI/scoregraph/schemas/feedback-1.schema.json",
+  "title": "feedback/1",
+  "description": "One complaint or request, redacted before it arrives. Never stored: names, emails, account ids, device ids, raw screenshots.",
+  "type": "object",
+  "required": ["schema", "id", "product", "source", "received_at", "text", "status"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "feedback/1"},
+    "id": {"type": "string", "minLength": 1, "description": "opaque; the product maps it to a person, this repository never does"},
+    "product": {"type": "string", "minLength": 1},
+    "product_version": {"type": "string"},
+    "source": {"enum": ["founder", "review", "tester", "customer", "store", "ticket", "analytics"]},
+    "received_at": {"type": "string"},
+    "text": {"type": "string", "description": "redacted: emails, phone numbers and known names are placeholders like [email:abcdefgh]"},
+    "links": {"type": "array", "items": {"type": "string"}},
+    "surface": {"type": "string"},
+    "context": {"type": "object", "additionalProperties": {"type": "string"}},
+    "rating": {"type": "number"},
+    "reporter_class": {"type": "string"},
+    "reporter_count": {"type": "integer", "minimum": 1, "default": 1},
+    "status": {"enum": ["new", "covered", "rule-drafted", "red-proven", "fixed", "closed", "not-reproduced", "declined"]},
+    "rules": {"type": "array", "items": {"type": "string"}},
+    "redaction": {"type": "object", "description": "scanner version, salted or not, removed counts per class"}
+  }
+}

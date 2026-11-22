@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/MassRelayAI/scoregraph/schemas/observation-1.schema.json",
+  "title": "observation/1",
+  "description": "What a probe saw for one rule in one context of one product version. Give `facts` (the engine evaluates the rule) or `outcome` (counted only for the same rule version), or both.",
+  "type": "object",
+  "required": ["schema", "product", "version", "rule", "context", "probe"],
+  "anyOf": [{"required": ["facts"]}, {"required": ["outcome"]}],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "observation/1"},
+    "product": {"type": "string", "minLength": 1, "description": "e.g. example-web"},
+    "version": {"type": "string", "minLength": 1, "description": "a commit sha, an image digest, a clone sha or a capture date"},
+    "rule": {
+      "type": "object",
+      "required": ["id", "version"],
+      "additionalProperties": false,
+      "properties": {"id": {"type": "string"}, "version": {"type": "integer", "minimum": 1}}
+    },
+    "context": {"type": "object", "additionalProperties": {"type": "string"}, "description": "viewport, role, locale, device class; compared only within one context"},
+    "outcome": {"enum": ["pass", "partial", "fail", "unmeasured", "blocked"]},
+    "facts": {"type": "object", "description": "the facts the check of the rule is evaluated over"},
+    "evidence": {"type": "array", "items": {"type": "string"}, "description": "refs: structure-fact files, hashes, counts; never screenshots of third-party products"},
+    "probe": {
+      "type": "object",
+      "required": ["id", "version"],
+      "additionalProperties": false,
+      "properties": {"id": {"type": "string"}, "version": {"type": "string"}}
+    },
+    "stamp": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "sha-256 of a gatetrain-style stamp file proving the run"},
+    "run": {"type": "string", "description": "the repeat this observation belongs to (repeats give the noise band)"},
+    "at": {"type": "string"},
+    "assertions": {"type": "integer", "minimum": 0},
+    "judge_digest": {"type": "string"}
+  }
+}
