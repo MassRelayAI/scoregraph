@@ -1,0 +1,20 @@
+{
+  "reviews": [
+    {
+      "reviewId": "gp:AOqpTOExample0001",
+      "authorName": "Alex Kim",
+      "comments": [
+        {"userComment": {"text": "Crashes on start\tAlex Kim here, it crashes every time since the update.", "lastModified": {"seconds": "1767600000", "nanos": 0}, "starRating": 1, "reviewerLanguage": "en", "appVersionName": "2.3.0"}}
+      ]
+    },
+    {
+      "reviewId": "gp:AOqpTOExample0002",
+      "authorName": "",
+      "comments": [
+        {"userComment": {"text": "\tThe sound is too loud on the first screen", "lastModified": {"seconds": "1767686400", "nanos": 0}, "starRating": 3, "reviewerLanguage": "en", "appVersionName": "2.3.0"}},
+        {"developerComment": {"text": "Thanks, a fix is coming.", "lastModified": {"seconds": "1767690000", "nanos": 0}}}
+      ]
+    }
+  ],
+  "tokenPagination": {}
+}

@@ -1,0 +1,44 @@
+{
+  "data": [
+    {
+      "type": "customerReviews",
+      "id": "00000000-aaaa-bbbb-cccc-000000000001",
+      "attributes": {
+        "rating": 2,
+        "title": "Buttons too small",
+        "body": "My kid cannot hit the answer buttons. HappyPanda77 out. Support: parent.one@example.net",
+        "reviewerNickname": "HappyPanda77",
+        "createdDate": "2026-01-06T08:00:00-08:00",
+        "territory": "USA"
+      }
+    },
+    {
+      "type": "customerReviews",
+      "id": "00000000-aaaa-bbbb-cccc-000000000002",
+      "attributes": {
+        "rating": 5,
+        "title": "Lovely",
+        "body": "Works great on the tablet.",
+        "reviewerNickname": "reader-two",
+        "createdDate": "2026-01-07T08:00:00+01:00",
+        "territory": "DEU"
+      }
+    },
+    {
+      "type": "customerReviews",
+      "id": "00000000-aaaa-bbbb-cccc-000000000003",
+      "attributes": {
+        "rating": 4,
+        "title": "",
+        "body": "",
+        "reviewerNickname": "x",
+        "createdDate": "2026-01-07T09:00:00+01:00",
+        "territory": "DEU"
+      }
+    }
+  ],
+  "links": {
+    "self": "https://api.appstoreconnect.apple.com/v1/apps/1234567890/customerReviews?sort=-createdDate&limit=200"
+  },
+  "meta": {"paging": {"total": 3, "limit": 200}}
+}

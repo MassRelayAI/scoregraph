@@ -1,0 +1,2 @@
+{"schema": "intake/1", "product": "example-web", "product_version": "a1b2c3d", "submitted_at": "2026-01-10T09:00:00Z", "surface": "checkout", "text": "The pay button does nothing on my phone. Reply to buyer@example.org", "rating": 2, "source": "customer", "reporter_class": "customer", "context": {"viewport": "390", "role": "member", "locale": "en"}, "client_ref": "door-0001"}
+{"schema": "intake/1", "product": "example-web", "submitted_at": "2026-01-10T10:00:00Z", "text": "Menu labels are cut off in German", "source": "tester", "context": {"locale": "de"}}

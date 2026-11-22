@@ -1,0 +1,18 @@
+{
+  "reviews": [
+    {
+      "reviewId": "gp:AOqpTOExample0001",
+      "authorName": "Alex Kim",
+      "comments": [
+        {"userComment": {"text": "Crashes on start\tAlex Kim here, it crashes every time since the update.", "lastModified": {"seconds": "1767600000", "nanos": 0}, "starRating": 1, "reviewerLanguage": "en", "appVersionName": "2.3.0"}}
+      ]
+    },
+    {
+      "reviewId": "gp:AOqpTOExample0002",
+      "authorName": "",
+      "comments": [
+        {"userComment": {"text": "\tThe sound is fine now, thanks", "lastModified": {"seconds": "1768032000", "nanos": 0}, "starRating": 4, "reviewerLanguage": "en", "appVersionName": "2.3.1"}}
+      ]
+    }
+  ]
+}

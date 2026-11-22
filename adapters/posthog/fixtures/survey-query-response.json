@@ -1,0 +1,11 @@
+{
+  "columns": ["uuid", "timestamp", "survey_id", "response", "submission_id"],
+  "types": [["uuid", "UUID"], ["timestamp", "DateTime"], ["survey_id", "String"], ["response", "String"], ["submission_id", "String"]],
+  "results": [
+    ["0190a1b2-0000-7000-8000-000000000001", "2026-01-05T09:12:00Z", "srv-onboarding", "The export button is hidden. Write me at sam.lee@example.com", "sub-1"],
+    ["0190a1b2-0000-7000-8000-000000000002", "2026-01-05T09:13:00Z", "srv-onboarding", "The export button is hidden. Write me at sam.lee@example.com", "sub-1"],
+    ["0190a1b2-0000-7000-8000-000000000003", "2026-01-05T10:00:00Z", "srv-onboarding", "Sign-up kept failing, call +1 415 555 0123", "sub-2"],
+    ["0190a1b2-0000-7000-8000-000000000004", "2026-01-05T11:00:00Z", "srv-onboarding", "", "sub-3"]
+  ],
+  "is_cached": false
+}

@@ -1,0 +1,8 @@
+{
+  "columns": ["step", "name", "count"],
+  "results": [
+    [1, "landing", 1000],
+    [2, "verify email", 400],
+    [3, "done", 300]
+  ]
+}

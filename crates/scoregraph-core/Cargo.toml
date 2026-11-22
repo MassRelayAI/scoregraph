@@ -1,0 +1,20 @@
+[package]
+name = "scoregraph-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "scoregraph core: rules, observations, scores, noise, gate, ledger, feedback, adapters (no terminal, no network)"
+
+[dependencies]
+serde.workspace = true        # typed records
+serde_json.workspace = true   # every format is JSON
+rusqlite.workspace = true     # the ledger
+sha2.workspace = true         # the hash chain
+regex.workspace = true        # redaction, privacy check
+csv.workspace = true          # CompareGraph export
+thiserror.workspace = true    # typed errors
+
+[dev-dependencies]
+tempfile.workspace = true     # throwaway ledgers

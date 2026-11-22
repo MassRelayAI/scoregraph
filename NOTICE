@@ -1,0 +1,11 @@
+scoregraph
+Copyright 2026 The scoregraph authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Parts of this product were adapted from sibling projects under the same licence:
+- the deny-list privacy check and the stamp format: gatetrain (https://github.com/MassRelayAI/gatetrain), Apache-2.0
+- the export csv format read by the comparegraph-export adapter: CompareGraph (https://github.com/MassRelayAI/comparegraph)
+
+Third-party API formats (PostHog Query API, Apple App Store Connect API, Google Play Developer API) are described from their
+public documentation; no code from those projects is included.

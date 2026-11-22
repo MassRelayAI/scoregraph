@@ -1,0 +1,24 @@
+[package]
+name = "scoregraph-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "the scoregraph binary"
+
+[[bin]]
+name = "scoregraph"
+path = "src/main.rs"
+
+[dependencies]
+scoregraph-core = { path = "../scoregraph-core" }
+serde.workspace = true        # print_json takes any Serialize
+serde_json.workspace = true   # --json output
+clap.workspace = true         # the command line
+anyhow.workspace = true       # error context
+
+[dev-dependencies]
+rusqlite.workspace = true     # tamper with a ledger in the integration tests
+serde_json.workspace = true
+tempfile.workspace = true     # throwaway ledgers

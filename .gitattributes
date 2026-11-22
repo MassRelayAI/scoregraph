@@ -1,0 +1,4 @@
+* text=auto eol=lf
+# byte-exact: a stamp is cited by the sha-256 of its bytes, fixtures by their digest
+adapters/**/fixtures/** -text
+rulesets/**/fixtures/** -text

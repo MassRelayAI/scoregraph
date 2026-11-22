@@ -1,0 +1,17 @@
+{
+  "v": 1,
+  "kind": "preflight",
+  "sha": "b2c3d4e5f60718293a4b5c6d7e8f901234567890",
+  "host": "builder-1",
+  "at": "2026-01-03T10:00:00Z",
+  "mode": "preflight",
+  "par": 4,
+  "total_seconds": 20.1,
+  "digest": "5f2b7c1e9a0d4b3c8e6f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d",
+  "steps": [
+    {"name": "lint", "tier": "fast", "rc": 0, "seconds": 12.0, "key": null, "cached_from": null, "shards": 1}
+  ],
+  "cached": [],
+  "prev": [],
+  "partial": true
+}

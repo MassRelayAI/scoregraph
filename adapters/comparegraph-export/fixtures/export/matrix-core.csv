@@ -1,0 +1,5 @@
+group,id,tier,weight,example-web,example-app,prevalence,gap,differentiator
+data,export.csv,core,3,has,none,0.500,true,false
+data,search.full-text,core,2,unknown*,has,0.500,false,false
+collab,share.link,core,1,partial,,0.500,false,false
+identity,sso.saml,extended,1,none,none,0.000,false,false

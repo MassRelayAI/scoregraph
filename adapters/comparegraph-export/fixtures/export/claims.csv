@@ -1,0 +1,5 @@
+id,repo,family,feature,verdict,confidence,author,created_at,supersedes_id,note,locations
+1,example-web,core,export.csv,has,high,reviewer-a,2026-01-02T10:00:00Z,,csv export button,src/export.ts:10-40
+2,example-web,core,share.link,has,medium,reviewer-a,2026-01-02T10:05:00Z,,,src/share.ts:1-20
+3,example-web,core,share.link,partial,high,reviewer-b,2026-01-03T09:00:00Z,2,"links expire, no revoke",src/share.ts:1-20
+4,example-app,core,export.csv,none,high,reviewer-a,2026-01-02T11:00:00Z,,,
