@@ -144,7 +144,7 @@ fn gate_exit_codes() {
     assert!(t.contains("was pass on a1 and is partial on b2"), "{t}");
     // with a loosen decision already on the base, the gaming reason goes; the base-ruleset regression still blocks (10)
     let (c, t) = run(&["decision", "add", "--db", &s(&w.db), "--rules", &s(&w.rules), "--id", "d-0001", "--rule", "ui.target.min-size",
-        "--action", "loosen", "--why", "the platform guideline is 32 px for dense tables", "--by", "maintainer"]);
+        "--action", "loosen", "--from-version", "1", "--to-version", "2", "--why", "the platform guideline is 32 px for dense tables", "--by", "maintainer"]);
     assert_eq!(c, 0, "{t}");
     edit_rule(&head, "ui.target.min-size", |v| v["decision"] = json!("d-0001"));
     std::fs::copy(w.rules.join("decisions.jsonl"), head.join("decisions.jsonl")).unwrap();
@@ -186,6 +186,26 @@ fn the_ledger_refuses_an_edited_row_and_the_anchor_refuses_rewritten_history() {
     assert_eq!(c, 1, "scoring reads a broken ledger: refused");
     let (c, _) = run(&["gate", "--db", &s(&w.db), "--product", "example-web", "--base", "a1", "--head", "a1", "--base-rules", &s(&w.rules)]);
     assert_eq!(c, 1);
+}
+
+#[test]
+fn a_truncated_ledger_is_refused_against_its_committed_head() {
+    let w = world();
+    let head = w.root.join("ledger-head.json");
+    let (c, t) = run(&["ledger", "head", "--db", &s(&w.db), "--out", &s(&head)]);
+    assert_eq!(c, 0, "{t}");
+    assert_eq!(run(&["ledger", "verify", "--db", &s(&w.db), "--anchor", &s(&head)]).0, 0);
+    let conn = rusqlite::Connection::open(&w.db).unwrap();
+    conn.execute_batch("DROP TRIGGER entries_no_delete; DELETE FROM entries WHERE seq = (SELECT MAX(seq) FROM entries);").unwrap();
+    drop(conn);
+    // the cut chain still verifies by itself...
+    assert_eq!(run(&["ledger", "verify", "--db", &s(&w.db)]).0, 0);
+    // ...but not against the committed head, and neither does the gate
+    let (c, t) = run(&["ledger", "verify", "--db", &s(&w.db), "--anchor", &s(&head)]);
+    assert_eq!(c, 1, "{t}");
+    assert!(t.contains("truncated"), "{t}");
+    let (c, t) = run(&["gate", "--db", &s(&w.db), "--product", "example-web", "--base", "a1", "--head", "a1", "--base-rules", &s(&w.rules), "--anchor", &s(&head)]);
+    assert_eq!(c, 1, "{t}");
 }
 
 #[test]

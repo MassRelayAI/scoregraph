@@ -14,6 +14,9 @@
     "why": {"type": "string", "minLength": 1},
     "decided_by": {"type": "string"},
     "decided_at": {"type": "string"},
+    "from_version": {"type": "integer", "minimum": 1, "description": "the rule version a loosen or retire starts from (required for a rule loosening)"},
+    "to_version": {"type": "integer", "minimum": 1, "description": "the rule version a loosen allows (required for a rule loosening)"},
+    "profile_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "for rule = profile: the digest of the profile a loosen allows"},
     "superseded_by": {"type": "string"}
   }
 }

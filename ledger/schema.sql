@@ -1,8 +1,11 @@
 -- scoregraph ledger: ONE append-only, hash-chained table. Nothing is updated in place and nothing is deleted.
 -- Every kind of record shares the chain, so an edit anywhere breaks every later hash.
---   hash = sha256_hex(prev || body)       prev of the first row = 64 zeros
+--   chain v2: hash = sha256_hex(canonical(["scoregraph-chain/2", seq, kind, key, prev, body]))
+--   chain v1: hash = sha256_hex(prev || body)        (older ledgers; sealed by a `chain-seal` row on their first v2 write)
+--   prev of the first row = 64 zeros
 -- `body` is canonical JSON (sorted keys, no whitespace). The engine verifies the whole chain before every write and refuses
--- to append to a broken one.
+-- to append to a broken one. A cut tail still chains by itself: commit the head (`scoregraph ledger head`) and verify
+-- against it (`ledger verify --anchor`).
 
 CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
@@ -15,7 +18,8 @@ CREATE TABLE IF NOT EXISTS entries (
   key   TEXT NOT NULL,            -- product@version, a feedback id or a rule id
   body  TEXT NOT NULL,            -- canonical JSON of the record
   prev  TEXT NOT NULL,            -- hash of row seq-1
-  hash  TEXT NOT NULL             -- sha256_hex(prev || body)
+  hash  TEXT NOT NULL,            -- see the chain formula above
+  chain_v INTEGER NOT NULL DEFAULT 1   -- the formula of this row; v2 for every row written by this version
 );
 
 CREATE INDEX IF NOT EXISTS entries_kind_key ON entries (kind, key);

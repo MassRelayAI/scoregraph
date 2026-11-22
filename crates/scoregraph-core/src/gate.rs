@@ -99,8 +99,9 @@ fn compare(b: &Score, h: &Score, g: &GateInput, policy_rules: &Ruleset) -> Vec<R
             out.push(warn(EXIT_COVERAGE_DROP, under, format!("rule {id}: {} assertions on head, {} on base", hr.assertions, br.assertions)));
         }
     }
+    // noise is the BASE's measured band only: the head is the thing under test and cannot widen its own tolerance
     if let (Some(bs), Some(hs)) = (b.product_score, h.product_score) {
-        let noise = (b.product_band.powi(2) + h.product_band.powi(2)).sqrt();
+        let noise = b.product_band;
         if bs - hs > noise + EPS {
             out.push(block(EXIT_SCORE_DROP, under, format!("product score {:.1} -> {:.1}, beyond noise ±{:.1}", bs * 100.0, hs * 100.0, noise * 100.0)));
         }
@@ -108,7 +109,7 @@ fn compare(b: &Score, h: &Score, g: &GateInput, policy_rules: &Ruleset) -> Vec<R
     for (name, bf) in &b.families {
         let Some(hf) = h.families.get(name) else { continue };
         if let (Some(bs), Some(hs)) = (bf.score, hf.score) {
-            let noise = (bf.band.powi(2) + hf.band.powi(2)).sqrt();
+            let noise = bf.band;
             if bs - hs > noise + EPS {
                 let fam = crate::model::Family::ALL.into_iter().find(|f| f.as_str() == name);
                 let policy = fam.map(|f| g.base_rules.profile.drop_policy(f)).unwrap_or_default();
@@ -240,11 +241,33 @@ mod tests {
         let mut r3 = o("quality.a", "a1", 12);
         r3.run = Some("3".into());
         noisy_base.push(r3);
-        // base quality.a: repeats 1,0,1 -> median 1, band 1. head quality.a fails once: within the band
-        let r = run(&f, &noisy_base, &[o("quality.a", "b2", 1), o("quality.b", "b2", 12)]);
+        // base quality.a: repeats 1,0,1 -> median 1, band 1 capped at 0.5 -> family band 0.25.
+        // head quality.a repeats 1,0 -> median 0.5: family 1.0 -> 0.75, a drop of 0.25, within the base band
+        let mut h2 = o("quality.a", "b2", 1);
+        h2.run = Some("2".into());
+        let r = run(&f, &noisy_base, &[o("quality.a", "b2", 12), h2, o("quality.b", "b2", 12)]);
         assert_eq!(r.exit, EXIT_OK, "{}", render(&r));
+        // a full fail on head is beyond it
+        let r = run(&f, &noisy_base, &[o("quality.a", "b2", 1), o("quality.b", "b2", 12)]);
+        assert_eq!(r.exit, EXIT_SCORE_DROP, "{}", render(&r));
         // the same drop with no measured noise blocks
         let r = run(&f, &[o("quality.a", "a1", 12), o("quality.b", "a1", 12)], &[o("quality.a", "b2", 1), o("quality.b", "b2", 12)]);
+        assert_eq!(r.exit, EXIT_SCORE_DROP, "{}", render(&r));
+    }
+
+    #[test]
+    fn a_head_that_inflates_its_own_noise_cannot_mask_a_drop() {
+        let rs = vec![rule("quality.a", "quality", 10, "warn"), rule("quality.b", "quality", 10, "warn")];
+        let f = fx(&rs, &[], &rs);
+        let base = [o("quality.a", "a1", 12), o("quality.b", "a1", 12)];
+        // head repeats quality.a as fail, pass, fail: median fail, and a self-made band of 1
+        let mut head = vec![o("quality.b", "b2", 12)];
+        for (i, x) in [1, 12, 1].iter().enumerate() {
+            let mut h = o("quality.a", "b2", *x);
+            h.run = Some(format!("{i}"));
+            head.push(h);
+        }
+        let r = run(&f, &base, &head);
         assert_eq!(r.exit, EXIT_SCORE_DROP, "{}", render(&r));
     }
 

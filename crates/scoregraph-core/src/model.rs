@@ -276,7 +276,8 @@ impl Observation {
         self.context.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(";")
     }
 
-    /// The outcome under `rule`: facts are evaluated by the rule itself; a bare outcome counts only for the same rule version.
+    /// The outcome under `rule`: facts are evaluated by the rule itself; a bare outcome counts only for the same rule version and
+    /// only with an evidence ref or a stamp (with `score --stamps` the stamp must also verify).
     pub fn outcome_under(&self, rule: &Rule) -> Outcome {
         if let Some(f) = &self.facts {
             let computed = rule.eval(f);
@@ -286,9 +287,11 @@ impl Observation {
             }
             return computed;
         }
+        // a bare outcome with nothing behind it (no facts, no evidence ref, no stamp) is a claim, not a measurement
+        let evidenced = !self.evidence.is_empty() || self.stamp.is_some();
         match self.outcome {
-            Some(o) if self.rule.version == rule.version => o,
             Some(Outcome::Blocked) => Outcome::Blocked,
+            Some(o) if self.rule.version == rule.version && evidenced => o,
             _ => Outcome::Unmeasured,
         }
     }
@@ -407,6 +410,15 @@ pub struct Decision {
     pub why: String,
     pub decided_by: String,
     pub decided_at: String,
+    /// A `loosen` or `retire` of a rule binds to the version it starts from...
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_version: Option<u32>,
+    /// ...and a `loosen` to the version it allows (both required for a rule loosening).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to_version: Option<u32>,
+    /// A `loosen` of the profile (`rule` = `profile`) binds to the digest of the profile it allows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile_digest: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub superseded_by: Option<String>,
 }
@@ -471,7 +483,13 @@ mod tests {
         let mut o = Observation::from_value(&json!({"schema": "observation/1", "product": "example-web", "version": "a1",
             "rule": {"id": "ui.target.min-size", "version": 1}, "context": {"viewport": "390"}, "outcome": "pass",
             "probe": {"id": "web", "version": "0.1"}})).unwrap();
+        // a bare outcome with nothing behind it (no facts, no evidence, no stamp) is not a measurement
+        assert_eq!(o.outcome_under(&r), Outcome::Unmeasured);
+        o.evidence = vec!["facts/a1/home-390.json".into()];
         assert_eq!(o.outcome_under(&r), Outcome::Pass);
+        o.evidence.clear();
+        o.stamp = Some("d".repeat(64));
+        assert_eq!(o.outcome_under(&r), Outcome::Pass, "a stamp is evidence (score --stamps verifies it)");
         o.rule.version = 2;
         assert_eq!(o.outcome_under(&r), Outcome::Unmeasured);
         o.facts = Some(json!({"min_px": 10}).as_object().unwrap().clone());

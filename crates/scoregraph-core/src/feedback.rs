@@ -168,7 +168,9 @@ pub fn accept(ledger: &mut Ledger, ruleset_dir: &Path, draft: &Value, product: &
         let observed: Vec<_> = ledger.observations(product, version)?.into_iter().filter(|o| o.rule.id == rule.id).filter_map(|o| o.facts).collect();
         let mut probes: Vec<&serde_json::Map<String, Value>> = vec![or, og, &fx.0, &fx.1];
         probes.extend(observed.iter());
-        let allowed = rule.decision.as_ref().and_then(|d| rs.decision(d)).is_some_and(|d| d.rule == rule.id && d.action == DecisionAction::Loosen);
+        let allowed = rule.decision.as_ref().and_then(|d| rs.decision(d)).is_some_and(|d| {
+            d.rule == rule.id && d.action == DecisionAction::Loosen && d.from_version == Some(old.version) && d.to_version == Some(rule.version)
+        });
         if is_looser(old, &rule, &probes) && !allowed {
             return refused(format!("rule {}: version {} lets through what version {} held back (a loosening); it needs a loosen decision", rule.id, rule.version, old.version));
         }
@@ -176,7 +178,12 @@ pub fn accept(ledger: &mut Ledger, ruleset_dir: &Path, draft: &Value, product: &
     let obs: Vec<_> = ledger.observations(product, version)?.into_iter().filter(|o| o.rule.id == rule.id).collect();
     let outs: Vec<Outcome> = obs.iter().map(|o| o.outcome_under(&rule)).filter(|o| o.value().is_some()).collect();
     if outs.is_empty() {
-        return refused(format!("rule {}: no measured observation of it on {product}@{version} ({} stored); probe the product first, then accept", rule.id, obs.len()));
+        return refused(format!("rule {}: no measured observation of it on {product}@{version} ({} stored; a bare outcome needs evidence or a stamp); probe the product first, then accept", rule.id, obs.len()));
+    }
+    // a real, probed version: some rule of the ruleset was observed on it (an invented version holds only the new rule's rows)
+    let probed = ledger.observations(product, version)?.iter().any(|o| rs.rules.contains_key(&o.rule.id));
+    if !probed {
+        return refused(format!("rule {}: {product}@{version} is not a probed version (no rule of the ruleset was observed on it)", rule.id));
     }
     let failing = outs.iter().filter(|o| **o != Outcome::Pass).count();
     if failing == 0 {
@@ -240,9 +247,13 @@ mod tests {
     }
 
     fn obs(ledger: &mut Ledger, rule: &str, x: i64) {
-        let o = json!({"schema": "observation/1", "product": "example-app", "version": "a1", "rule": {"id": rule, "version": 1},
+        obs_v(ledger, rule, x, "a1");
+    }
+
+    fn obs_v(ledger: &mut Ledger, rule: &str, x: i64, v: &str) {
+        let o = json!({"schema": "observation/1", "product": "example-app", "version": v, "rule": {"id": rule, "version": 1},
             "context": {}, "facts": {"x": x}, "probe": {"id": "p", "version": "1"}});
-        ledger.append("observation", "example-app@a1", &o).unwrap();
+        ledger.append("observation", &format!("example-app@{v}"), &o).unwrap();
     }
 
     fn real_draft(ledger: &mut Ledger, id: &str) -> Value {
@@ -271,6 +282,7 @@ mod tests {
         let mut l = Ledger::in_memory().unwrap();
         add(&mut l, &[fb("fb-1", "answer buttons are too small")], false).unwrap();
         let dr = real_draft(&mut l, "ui.target.answer");
+        obs(&mut l, "ui.other", 5);
         // no observation yet: refused, probe first
         assert!(accept(&mut l, d.path(), &dr, "example-app", "a1", "t").unwrap_err().to_string().contains("probe the product first"));
         // the product already passes: refused, and the feedback says not-reproduced
@@ -287,6 +299,29 @@ mod tests {
         assert_eq!(rs.rules["ui.target.answer"].state, RuleState::Active);
         assert!(rs.require_self_test().is_ok());
         assert_eq!(l.verify().unwrap(), l.conn().query_row("SELECT COUNT(*) FROM entries", [], |r| r.get::<_, i64>(0)).unwrap());
+    }
+
+    #[test]
+    fn red_first_needs_an_evidenced_fail_on_a_probed_version() {
+        let d = tempfile::tempdir().unwrap();
+        write(d.path(), &[rule("ui.other", "ui", 1, "warn")], &[]);
+        let mut l = Ledger::in_memory().unwrap();
+        add(&mut l, &[fb("fb-1", "answer buttons are too small")], false).unwrap();
+        let dr = real_draft(&mut l, "ui.target.answer");
+        // red: a bare `fail` with no facts, no evidence, no stamp, on a version nothing else was probed on
+        let bare = json!({"schema": "observation/1", "product": "example-app", "version": "invented", "rule": {"id": "ui.target.answer", "version": 1},
+            "context": {}, "outcome": "fail", "probe": {"id": "p", "version": "1"}});
+        l.append("observation", "example-app@invented", &bare).unwrap();
+        assert!(accept(&mut l, d.path(), &dr, "example-app", "invented", "t").is_err());
+        // red: an evidenced fail, but on a version no rule of the ruleset was ever observed on
+        let mut ev = bare.clone();
+        ev["evidence"] = json!(["facts/invented/answer.json"]);
+        l.append("observation", "example-app@invented", &ev).unwrap();
+        let e = accept(&mut l, d.path(), &dr, "example-app", "invented", "t").unwrap_err().to_string();
+        assert!(e.contains("not a probed version"), "{e}");
+        // green: the same version once a ruleset rule was observed on it
+        obs_v(&mut l, "ui.other", 5, "invented");
+        accept(&mut l, d.path(), &dr, "example-app", "invented", "t").unwrap();
     }
 
     #[test]

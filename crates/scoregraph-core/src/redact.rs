@@ -32,9 +32,46 @@ fn date_re() -> &'static Regex {
     R.get_or_init(|| Regex::new(r"^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?)?$").unwrap())
 }
 
-fn is_phone(m: &str) -> bool {
+/// The class of a digit run: `phone` for 8 to 15 digits, `number` for more (card, account, id numbers), none below 8 or for an ISO
+/// date or time.
+fn digit_class(m: &str) -> Option<&'static str> {
     let digits = m.chars().filter(char::is_ascii_digit).count();
-    (8..=15).contains(&digits) && !date_re().is_match(m.trim())
+    if digits < 8 || date_re().is_match(m.trim()) {
+        None
+    } else if digits <= 15 {
+        Some("phone")
+    } else {
+        Some("number")
+    }
+}
+
+/// Normalise before matching: fullwidth forms (U+FF01..U+FF5E: digits, `@`, `+`, letters) become ASCII, and percent-encoded
+/// printable ASCII (`%40` -> `@`) is decoded, so neither can carry an email or a number past the patterns.
+pub fn normalize(text: &str) -> String {
+    let ascii: String = text
+        .chars()
+        .map(|c| match c as u32 {
+            0xFF01..=0xFF5E => char::from_u32(c as u32 - 0xFEE0).unwrap_or(c),
+            0x3000 => ' ',
+            _ => c,
+        })
+        .collect();
+    let b = ascii.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() {
+            let hex = std::str::from_utf8(&b[i + 1..i + 3]).ok().and_then(|h| u8::from_str_radix(h, 16).ok());
+            if let Some(x) = hex.filter(|x| (0x20..0x7F).contains(x)) {
+                out.push(x);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8(out).unwrap_or(ascii)
 }
 
 pub struct Redactor {
@@ -85,8 +122,9 @@ impl Redactor {
         self.placeholder("name", name)
     }
 
-    /// Free text: emails, phone numbers and known names become placeholders.
+    /// Free text (normalised first): emails, phone numbers, long digit runs and known names become placeholders.
     pub fn text(&mut self, text: &str) -> String {
+        let text = &normalize(text);
         let mut out = String::new();
         let mut last = 0;
         let mut n = 0;
@@ -103,19 +141,17 @@ impl Redactor {
         let src = out;
         let mut out = String::new();
         let mut last = 0;
-        let mut n = 0;
+        let mut found = vec![];
         for m in phone_re().find_iter(&src) {
-            if !is_phone(m.as_str()) {
-                continue;
-            }
+            let Some(class) = digit_class(m.as_str()) else { continue };
             out.push_str(&src[last..m.start()]);
-            out.push_str(&self.placeholder("phone", m.as_str()));
+            out.push_str(&self.placeholder(class, m.as_str()));
             last = m.end();
-            n += 1;
+            found.push(class);
         }
         out.push_str(&src[last..]);
-        for _ in 0..n {
-            self.bump("phone");
+        for class in found {
+            self.bump(class);
         }
         for name in self.names.clone() {
             let re = Regex::new(&format!(r"(?i)\b{}\b", regex::escape(&name))).unwrap();
@@ -137,14 +173,19 @@ impl Redactor {
     }
 }
 
-/// What the ingest scan finds in a text: the classes found (never the values).
+/// What the ingest scan finds in a text (normalised first): the classes found, never the values.
 pub fn scan(text: &str) -> Vec<&'static str> {
+    let text = &normalize(text);
     let mut out = vec![];
     if email_re().is_match(text) {
         out.push("email");
     }
-    if phone_re().find_iter(text).any(|m| is_phone(m.as_str())) {
-        out.push("phone");
+    for m in phone_re().find_iter(text) {
+        if let Some(c) = digit_class(m.as_str()) {
+            if !out.contains(&c) {
+                out.push(c);
+            }
+        }
     }
     out
 }
@@ -169,6 +210,23 @@ mod tests {
         let mut r2 = Redactor::new("s", true);
         assert_eq!(r2.name("jane roe"), author);
         assert_ne!(Redactor::new("t", true).name("Jane Roe"), author);
+    }
+
+    #[test]
+    fn long_digit_runs_percent_encoded_emails_and_fullwidth_digits_are_redacted() {
+        let mut r = Redactor::new("s", true);
+        for raw in [
+            "card 4111 1111 1111 1111 2222 thanks",
+            "account 12345678901234567890",
+            "mail me a.b%40example.com please",
+            "call \u{ff10}\u{ff18}\u{ff11}\u{ff12} \u{ff13}\u{ff14}\u{ff15}\u{ff16} \u{ff17}\u{ff18}\u{ff19}\u{ff10}",
+        ] {
+            assert!(!scan(raw).is_empty(), "the ingest scan must refuse: {raw}");
+            let t = r.text(raw);
+            assert!(scan(&t).is_empty(), "{raw} -> {t}");
+            assert!(!t.contains("1111") && !t.contains("12345678") && !t.contains("%40") && !t.contains('\u{ff18}'), "{t}");
+        }
+        assert!(scan("on 2026-11-22 at 10:00, order 1234").is_empty());
     }
 
     #[test]

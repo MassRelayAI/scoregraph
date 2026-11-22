@@ -20,7 +20,7 @@ turns feedback into permanent red-first rules, and gates any change that lowers 
 | A complaint is fixed, then quietly comes back. | **Feedback -> rule, red first**: a rule is accepted only when it fails on the product today; it stays forever and the gate blocks its regression. |
 | Scores are compared across different rules or noisy runs. | Scores carry their **ruleset digest**; repeats give a **noise band**; a drop counts only beyond it. |
 | A change edits the rule it breaks. | The head is also scored under the **base** ruleset; loosening or retiring a rule needs a **decision already on the base**. |
-| History is rewritten. | One **append-only, hash-chained** SQLite ledger; the exported `scores.jsonl` must keep the committed copy as a prefix. |
+| History is rewritten. | One **append-only, hash-chained** SQLite ledger whose committed head must still be held; the exported `scores.jsonl` must keep the committed copy as a prefix. |
 
 ## Install
 
@@ -55,7 +55,7 @@ scoregraph ledger export --db sg.db --out scores.jsonl
 | `ingest --db --rules <files>` | validate `observation/1` records and append them; refuses a probe outcome that contradicts its own facts |
 | `score --db --rules --product --version` | family scores, floor, coverage, noise band; `--claims` adds proven % and overclaims; `--stamps` requires gatetrain stamps; `--append` writes the row |
 | `gate --db --product --base --head --base-rules [--head-rules]` | exit 0, or 10 blocking rule regressed, 11 score drop beyond noise, 12 coverage drop, 13 rule loosened or retired without a decision |
-| `ledger verify \| export \| anchor` | recompute the chain; write `scores.jsonl`; check the committed copy (`--committed-ref origin/main:scores.jsonl`) is a prefix |
+| `ledger verify \| head \| export \| anchor` | recompute the chain (`--anchor` also requires the committed head); write the head to commit; write `scores.jsonl`; check the committed copy (`--committed-ref origin/main:scores.jsonl`) is a prefix |
 | `feedback add \| list` | store redacted `feedback/1` (a record holding an email or a phone number is refused); show each one's status |
 | `rule draft \| accept \| retire` | a rule skeleton from feedback; accept only when red on the named product version; retire only by decision |
 | `decision add` | a `decision/1` record, the only way to loosen or retire a rule |

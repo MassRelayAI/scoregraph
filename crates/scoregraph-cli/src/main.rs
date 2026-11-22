@@ -62,6 +62,9 @@ enum Cmd {
         /// The ruleset of the head; defaults to the base ruleset.
         #[arg(long)]
         head_rules: Option<PathBuf>,
+        /// The committed ledger head (`ledger head --out`): the ledger must still hold it.
+        #[arg(long)]
+        anchor: Option<PathBuf>,
         #[arg(long)]
         json: bool,
     },
@@ -122,6 +125,9 @@ struct ScoreArgs {
     /// Append the score row to the ledger.
     #[arg(long)]
     append: bool,
+    /// The committed ledger head (`ledger head --out`): the ledger must still hold it.
+    #[arg(long)]
+    anchor: Option<PathBuf>,
     #[arg(long)]
     at: Option<String>,
     #[arg(long)]
@@ -130,9 +136,21 @@ struct ScoreArgs {
 
 #[derive(Subcommand)]
 enum LedgerCmd {
+    /// Recompute the chain; with --anchor (a file) or --anchor-ref (`<ref>:<path>`), also require the committed head.
     Verify {
         #[arg(long)]
         db: PathBuf,
+        #[arg(long, conflicts_with = "anchor_ref")]
+        anchor: Option<PathBuf>,
+        #[arg(long)]
+        anchor_ref: Option<String>,
+    },
+    /// Write the chain head (`ledger-head/1`: seq and hash) to commit on the trusted branch.
+    Head {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        out: Option<PathBuf>,
     },
     /// Write every score row as scores.jsonl (each line chained to the one before).
     Export {
@@ -224,6 +242,15 @@ enum DecisionCmd {
         /// retire | loosen | promote
         #[arg(long)]
         action: String,
+        /// The rule version the decision starts from (required for a rule loosening).
+        #[arg(long)]
+        from_version: Option<u32>,
+        /// The rule version it allows (required for a rule loosening).
+        #[arg(long)]
+        to_version: Option<u32>,
+        /// For `--rule profile`: the digest of the profile it allows (`scoregraph selftest --json` prints it).
+        #[arg(long)]
+        profile_digest: Option<String>,
         #[arg(long)]
         why: String,
         #[arg(long)]
@@ -351,7 +378,7 @@ fn run(cli: Cli) -> anyhow::Result<i32> {
         Cmd::Score(a) => {
             let rs = load_rules(&a.rules)?;
             let mut l = Ledger::open(&a.db)?;
-            l.verify()?;
+            check_ledger(&l, a.anchor.as_deref(), None)?;
             let obs = l.observations(&a.product, &a.version)?;
             let claims = a.claims.as_ref().map(|d| Claims::load(d)).transpose()?;
             let verified = match &a.stamps {
@@ -377,9 +404,9 @@ fn run(cli: Cli) -> anyhow::Result<i32> {
             }
             Ok(0)
         }
-        Cmd::Gate { db, product, base, head, base_rules, head_rules, json } => {
+        Cmd::Gate { db, product, base, head, base_rules, head_rules, anchor, json } => {
             let l = Ledger::open(&db)?;
-            l.verify()?;
+            check_ledger(&l, anchor.as_deref(), None)?;
             let b = load_rules(&base_rules)?;
             let h = match &head_rules {
                 Some(d) => load_rules(d)?,
@@ -395,9 +422,23 @@ fn run(cli: Cli) -> anyhow::Result<i32> {
             Ok(r.exit)
         }
         Cmd::Ledger { cmd } => match cmd {
-            LedgerCmd::Verify { db } => {
-                let n = Ledger::open(&db)?.verify()?;
-                println!("ledger: {n} rows, chain intact");
+            LedgerCmd::Verify { db, anchor, anchor_ref } => {
+                let l = Ledger::open(&db)?;
+                let n = check_ledger(&l, anchor.as_deref(), anchor_ref.as_deref())?;
+                let with = if anchor.is_some() || anchor_ref.is_some() { ", the committed head is held" } else { "" };
+                println!("ledger: {n} rows, chain intact{with}");
+                Ok(0)
+            }
+            LedgerCmd::Head { db, out } => {
+                let h = Ledger::open(&db)?.head()?;
+                let text = canonical(&h) + "\n";
+                match out {
+                    Some(p) => {
+                        std::fs::write(&p, &text)?;
+                        println!("ledger head seq {} -> {} (commit it on the trusted branch)", h["seq"], p.display());
+                    }
+                    None => print!("{text}"),
+                }
                 Ok(0)
             }
             LedgerCmd::Export { db, out } => {
@@ -479,9 +520,20 @@ fn run(cli: Cli) -> anyhow::Result<i32> {
                 Ok(0)
             }
         },
-        Cmd::Decision { cmd: DecisionCmd::Add { db, rules, id, rule, action, why, by } } => {
+        Cmd::Decision { cmd: DecisionCmd::Add { db, rules, id, rule, action, from_version, to_version, profile_digest, why, by } } => {
             let mut l = Ledger::open(&db)?;
-            let d = json!({"schema": "decision/1", "id": id, "rule": rule, "action": action, "why": why, "decided_by": by, "decided_at": now_utc()});
+            let mut d = json!({"schema": "decision/1", "id": id, "rule": rule, "action": action, "why": why, "decided_by": by, "decided_at": now_utc()});
+            if action == "loosen" && rule != "profile" && (from_version.is_none() || to_version.is_none()) {
+                bail!("a loosen decision for a rule names --from-version and --to-version");
+            }
+            if action == "loosen" && rule == "profile" && profile_digest.is_none() {
+                bail!("a loosen decision for the profile names --profile-digest");
+            }
+            for (k, v) in [("from_version", from_version.map(|x| json!(x))), ("to_version", to_version.map(|x| json!(x))), ("profile_digest", profile_digest.map(|x| json!(x)))] {
+                if let Some(v) = v {
+                    d[k] = v;
+                }
+            }
             let d = feedback::add_decision(&mut l, &rules, &d)?;
             println!("decision {} ({:?} {}) recorded", d.id, d.action, d.rule);
             Ok(0)
@@ -493,6 +545,28 @@ fn run(cli: Cli) -> anyhow::Result<i32> {
             _ => 2,
         }),
     }
+}
+
+/// `git show <ref>:<path>`, the text of a file on a trusted ref.
+fn git_show(r: &str) -> anyhow::Result<String> {
+    let o = std::process::Command::new("git").args(["show", r]).output().context("cannot run git")?;
+    if !o.status.success() {
+        bail!("git show {r}: {}", String::from_utf8_lossy(&o.stderr).trim());
+    }
+    Ok(String::from_utf8(o.stdout)?)
+}
+
+/// Verify the chain, and the committed head when one is given (a file or `<ref>:<path>`).
+fn check_ledger(l: &Ledger, anchor: Option<&Path>, anchor_ref: Option<&str>) -> anyhow::Result<i64> {
+    let text = match (anchor, anchor_ref) {
+        (Some(p), _) => Some(std::fs::read_to_string(p).with_context(|| format!("cannot read {}", p.display()))?),
+        (None, Some(r)) => Some(git_show(r)?),
+        (None, None) => None,
+    };
+    Ok(match text {
+        Some(t) => l.verify_anchor(&serde_json::from_str(&t).context("the anchor is not JSON")?)?,
+        None => l.verify()?,
+    })
 }
 
 fn read_json(p: &Path) -> anyhow::Result<Value> {

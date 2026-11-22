@@ -37,9 +37,20 @@ pub struct Profile {
     /// Subtracted from the product score per overclaim (default 0: overclaims are reported, not folded in).
     #[serde(default)]
     pub overclaim_penalty: f64,
+    /// Cap on one rule's noise band (default 0.5). Raising it is a loosening.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_rule_band: Option<f64>,
 }
 
 impl Profile {
+    /// The largest noise band one rule may carry (default 0.5): repeats cannot hide a rule's drop entirely.
+    pub fn max_rule_band(&self) -> f64 {
+        self.max_rule_band.unwrap_or(0.5)
+    }
+    /// sha-256 of the canonical profile (a profile loosen decision binds to it).
+    pub fn digest(&self) -> String {
+        sha256_hex(canonical(&serde_json::to_value(self).unwrap_or(Value::Null)).as_bytes())
+    }
     pub fn weight(&self, f: Family) -> f64 {
         self.family_weights.get(f.as_str()).copied().unwrap_or(1.0)
     }
@@ -216,10 +227,19 @@ pub fn is_looser(old: &Rule, new: &Rule, probes: &[&Map<String, Value>]) -> bool
 /// from real observations per rule id, so a threshold moved just past the fixtures but onto the product is still caught.
 pub fn loosenings(base: &Ruleset, head: &Ruleset, observed: &BTreeMap<String, Vec<Map<String, Value>>>) -> Vec<Loosening> {
     let mut out = vec![];
-    let allowed_by = |rule: &str, d: Option<&String>, action: DecisionAction| -> (Option<String>, bool) {
+    // a decision binds to its rule, its action and its versions: a loosen names from_version and to_version, a retire its
+    // from_version when it gives one
+    let allowed_by = |rule: &str, d: Option<&String>, action: DecisionAction, from: u32, to: u32| -> (Option<String>, bool) {
         match d {
             Some(id) => {
-                let ok = base.decision(id).is_some_and(|x| x.rule == rule && x.action == action);
+                let ok = base.decision(id).is_some_and(|x| {
+                    x.rule == rule
+                        && x.action == action
+                        && match action {
+                            DecisionAction::Loosen => x.from_version == Some(from) && x.to_version == Some(to),
+                            _ => x.from_version.is_none_or(|f| f == from),
+                        }
+                });
                 (Some(id.clone()), ok)
             }
             None => (None, false),
@@ -237,7 +257,7 @@ pub fn loosenings(base: &Ruleset, head: &Ruleset, observed: &BTreeMap<String, Ve
             continue;
         };
         if h.state != RuleState::Active {
-            push(&mut out, "retired", allowed_by(&b.id, h.decision.as_ref(), DecisionAction::Retire));
+            push(&mut out, "retired", allowed_by(&b.id, h.decision.as_ref(), DecisionAction::Retire, b.version, h.version));
             continue;
         }
         let same_text = serde_json::to_value(b).ok() == serde_json::to_value(h).ok() && base.fixtures.get(&b.id) == head.fixtures.get(&b.id);
@@ -253,17 +273,49 @@ pub fn loosenings(base: &Ruleset, head: &Ruleset, observed: &BTreeMap<String, Ve
         let (hr, hg) = &head.fixtures[&b.id];
         let mut probes: Vec<&Map<String, Value>> = vec![br, bg, hr, hg];
         probes.extend(observed.get(&b.id).into_iter().flatten());
+        let by = || allowed_by(&b.id, h.decision.as_ref(), DecisionAction::Loosen, b.version, h.version);
         if is_looser(b, h, &probes) {
-            push(&mut out, "check-loosened", allowed_by(&b.id, h.decision.as_ref(), DecisionAction::Loosen));
+            push(&mut out, "check-loosened", by());
         }
         if h.weight < b.weight {
-            push(&mut out, "weight-lowered", allowed_by(&b.id, h.decision.as_ref(), DecisionAction::Loosen));
+            push(&mut out, "weight-lowered", by());
         }
         if h.mode < b.mode {
-            push(&mut out, "mode-lowered", allowed_by(&b.id, h.decision.as_ref(), DecisionAction::Loosen));
+            push(&mut out, "mode-lowered", by());
         }
     }
+    out.extend(profile_loosenings(base, head));
     out
+}
+
+/// The profile decides weights, drop policy, the overclaim penalty and the noise cap; moving any of them the easy way is a
+/// loosening too. Allowed by a base decision `{"rule": "profile", "action": "loosen", "profile_digest": <head profile digest>}`.
+fn profile_loosenings(base: &Ruleset, head: &Ruleset) -> Vec<Loosening> {
+    let (b, h) = (&base.profile, &head.profile);
+    let mut whats = vec![];
+    for f in Family::ALL {
+        if h.weight(f) < b.weight(f) {
+            whats.push(format!("profile-weight-lowered:{}", f.as_str()));
+        }
+    }
+    for f in Family::ALL {
+        if b.drop_policy(f) == DropPolicy::Block && h.drop_policy(f) == DropPolicy::Warn {
+            whats.push(format!("profile-drop-to-warn:{}", f.as_str()));
+        }
+    }
+    if h.overclaim_penalty < b.overclaim_penalty {
+        whats.push("profile-penalty-lowered".into());
+    }
+    if h.max_rule_band() > b.max_rule_band() {
+        whats.push("profile-noise-cap-raised".into());
+    }
+    let hd = h.digest();
+    let d = base
+        .decisions
+        .iter()
+        .find(|d| d.rule == "profile" && d.action == DecisionAction::Loosen && d.profile_digest.as_deref() == Some(hd.as_str()))
+        .map(|d| d.id.clone());
+    whats.into_iter().map(|what| Loosening { rule: "profile".into(), what, allowed: d.is_some(), decision: d.clone() }).collect()
 }
 
 /// Mode of a rule id in whichever ruleset has it, preferring the stricter one.
@@ -299,8 +351,14 @@ pub(crate) mod testkit {
                "green": {"facts": {"x": min}}, "owner": "o"})
     }
 
+    /// A decision; a `loosen` of a rule binds to versions 1 -> 2 (the tests' only loosening).
     pub fn decision(id: &str, rule: &str, action: &str) -> Value {
-        json!({"schema": "decision/1", "id": id, "rule": rule, "action": action, "why": "w", "decided_by": "maintainer", "decided_at": "2026-01-01"})
+        let mut d = json!({"schema": "decision/1", "id": id, "rule": rule, "action": action, "why": "w", "decided_by": "maintainer", "decided_at": "2026-01-01"});
+        if action == "loosen" && rule != "profile" {
+            d["from_version"] = json!(1);
+            d["to_version"] = json!(2);
+        }
+        d
     }
 }
 
@@ -426,6 +484,53 @@ mod tests {
         assert!(loosenings(&base, &head, &BTreeMap::new()).is_empty(), "the fixtures alone cannot see it");
         let observed: BTreeMap<String, Vec<Map<String, Value>>> = [("ui.a".to_string(), vec![json!({"x": 43}).as_object().unwrap().clone()])].into();
         assert_eq!(loosenings(&base, &head, &observed)[0].what, "check-loosened");
+    }
+
+    #[test]
+    fn a_loosen_decision_binds_to_its_from_and_to_versions() {
+        let base = rule("ui.a", "ui", 44, "blocking");
+        let mut loose = rule("ui.a", "ui", 30, "blocking");
+        loose["version"] = json!(2);
+        loose["decision"] = json!("d-1");
+        let mut wrong = decision("d-1", "ui.a", "loosen");
+        wrong["from_version"] = json!(1);
+        wrong["to_version"] = json!(3);
+        assert!(!diff(&[base.clone()], &[wrong], &[loose.clone()], &[])[0].allowed, "a decision for 1 -> 3 does not allow 1 -> 2");
+        let mut unbound = decision("d-1", "ui.a", "loosen");
+        unbound.as_object_mut().unwrap().remove("to_version");
+        assert!(!diff(&[base.clone()], &[unbound], &[loose.clone()], &[])[0].allowed, "a loosen decision must name its versions");
+        assert!(diff(&[base], &[decision("d-1", "ui.a", "loosen")], &[loose], &[])[0].allowed);
+    }
+
+    #[test]
+    fn loosening_the_profile_needs_a_decision_too() {
+        let (b, h) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let r = [rule("ui.a", "ui", 44, "blocking")];
+        write(b.path(), &r, &[]);
+        write(h.path(), &r, &[]);
+        std::fs::write(b.path().join("profile.json"), r#"{"family_weights": {"ui": 2}, "family_drop": {"ui": "block"}, "overclaim_penalty": 0.1}"#).unwrap();
+        std::fs::write(h.path().join("profile.json"), r#"{"family_weights": {"ui": 1}, "family_drop": {"ui": "warn"}, "overclaim_penalty": 0}"#).unwrap();
+        let l = loosenings(&Ruleset::load(b.path()).unwrap(), &Ruleset::load(h.path()).unwrap(), &BTreeMap::new());
+        let whats: Vec<&str> = l.iter().map(|x| x.what.as_str()).collect();
+        assert_eq!(whats, vec!["profile-weight-lowered:ui", "profile-drop-to-warn:ui", "profile-penalty-lowered"]);
+        assert!(l.iter().all(|x| !x.allowed));
+        // a raised weight is not a loosening
+        std::fs::write(h.path().join("profile.json"), r#"{"family_weights": {"ui": 3}, "family_drop": {"ui": "block"}, "overclaim_penalty": 0.2}"#).unwrap();
+        assert!(loosenings(&Ruleset::load(b.path()).unwrap(), &Ruleset::load(h.path()).unwrap(), &BTreeMap::new()).is_empty());
+        // a profile loosen decision on the base allows exactly the head profile it names (by digest), nothing else
+        std::fs::write(h.path().join("profile.json"), r#"{"family_weights": {"ui": 1}}"#).unwrap();
+        let hd = Ruleset::load(h.path()).unwrap().profile.digest();
+        let mut dp = decision("d-p", "profile", "loosen");
+        dp["profile_digest"] = json!("0".repeat(64));
+        write(b.path(), &r, &[dp.clone()]);
+        std::fs::write(b.path().join("profile.json"), r#"{"family_weights": {"ui": 2}}"#).unwrap();
+        let l = loosenings(&Ruleset::load(b.path()).unwrap(), &Ruleset::load(h.path()).unwrap(), &BTreeMap::new());
+        assert!(!l.is_empty() && l.iter().all(|x| !x.allowed), "{l:?}");
+        dp["profile_digest"] = json!(hd);
+        write(b.path(), &r, &[dp]);
+        std::fs::write(b.path().join("profile.json"), r#"{"family_weights": {"ui": 2}}"#).unwrap();
+        let l = loosenings(&Ruleset::load(b.path()).unwrap(), &Ruleset::load(h.path()).unwrap(), &BTreeMap::new());
+        assert!(!l.is_empty() && l.iter().all(|x| x.allowed), "{l:?}");
     }
 
     #[test]

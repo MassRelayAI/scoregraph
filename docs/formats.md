@@ -22,8 +22,8 @@ to the code.
 ```
 
 - `facts` or `outcome` (`pass | partial | fail | unmeasured | blocked`) is required. With facts, the engine evaluates the rule; a bare
-  outcome counts only for the same rule version (under another version it is `unmeasured`). `blocked` (the probe could not reach the
-  thing) is never overridden.
+  outcome counts only for the same rule version AND with a non-empty `evidence` or a `stamp` (otherwise it is `unmeasured`: a claim,
+  not a measurement). `blocked` (the probe could not reach the thing) is never overridden.
 - `run` groups repeats of one version: the median is the rule's score in that context, the spread its noise band.
 - `stamp` is the sha-256 of a gatetrain stamp file; with `score --stamps` an observation without a verified stamp of its own version is
   `unproven`.
@@ -87,7 +87,11 @@ actually exercise the check). Any broken rule refuses `selftest`, `ingest`, `sco
 ```
 
 `action`: `retire | loosen | promote`. Decisions live in `<ruleset>/decisions.jsonl` (written once, never rewritten) and on the ledger.
-For the gate, a decision counts only when it is already in the **base** ruleset.
+For the gate, a decision counts only when it is already in the **base** ruleset, and it binds:
+
+- a `loosen` of a rule names `from_version` and `to_version`, and allows exactly that step (a decision for 1 -> 3 does not allow 1 -> 2);
+- a `retire` may name `from_version`; if it does, it must match;
+- a `loosen` of the profile (`"rule": "profile"`) names `profile_digest`, the sha-256 of the canonical head profile it allows.
 
 ## score/1
 
@@ -111,10 +115,19 @@ refused, not filtered.
 
 ## The ledger
 
-`ledger/schema.sql`: one table `entries (seq, kind, key, body, prev, hash)`; `kind` is `observation | score | feedback | feedback-event |
-rule-event | decision`; `body` is canonical JSON (sorted keys, no whitespace); `hash = sha256_hex(prev || body)`, `prev` of row 1 is 64
-zeros. Triggers refuse UPDATE and DELETE. Every write first recomputes the chain and refuses a broken one (an edited body, a recomputed
-hash that no longer matches the next row's `prev`, a missing row).
+`ledger/schema.sql`: one table `entries (seq, kind, key, body, prev, hash, chain_v)`; `kind` is `observation | score | feedback |
+feedback-event | rule-event | decision | chain-seal`; `body` is canonical JSON (sorted keys, no whitespace); `prev` of row 1 is 64 zeros.
+
+- **Chain v2** (every row written now): `hash = sha256_hex(canonical(["scoregraph-chain/2", seq, kind, key, prev, body]))`, so re-keying a
+  row to another product version, changing its kind or its seq breaks the chain as surely as editing its body.
+- **Chain v1** (older ledgers): `hash = sha256_hex(prev || body)`. Opening one adds the `chain_v` column (existing rows are v1); the first
+  write appends a `chain-seal` row whose `v1_digest` covers every v1 row's (seq, kind, key, hash), so their keys are protected from then on.
+  No v1 row may follow a v2 row.
+- Triggers refuse UPDATE and DELETE. Every write first recomputes the chain and refuses a broken one.
+- **Head anchor.** A cut tail (or a cut and re-forged one) still chains by itself. `ledger head --out ledger-head.json` writes
+  `{"schema": "ledger-head/1", "seq": n, "hash": h}`; commit it on the trusted branch, then `ledger verify --anchor ledger-head.json` (or
+  `--anchor-ref origin/main:ledger-head.json`), `score --anchor` and `gate --anchor` refuse a ledger that no longer holds row `n` with hash
+  `h` (`truncated` or `rewritten`). Rows after the anchor are only as safe as the next anchor you commit.
 
 `scores.jsonl` (`ledger export`): one score row per line in chain order, each with `prev` = sha-256 of the previous line's bytes.
 `ledger anchor --committed-ref origin/main:scores.jsonl --current scores.jsonl` refuses unless both chains verify and the committed lines

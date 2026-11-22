@@ -85,19 +85,22 @@ net            = product_score - overclaim_penalty * overclaims   (a separate li
 `w` is the rule's weight; `W_f` comes from the ruleset's `profile.json` (a children's app may weight `flow`, `ui` and `judged` above
 `quality`). Every score prints its families and the rules that are not passing.
 
-**Noise.** Repeats of one version (the `run` field) give each rule a band: the largest spread within a context. A deterministic rule on a
-pinned environment repeats identically (band 0, proven by an A/A run); timing rules need several runs; judged rules take their band from
-order-swap and repeat disagreement. A family band is the root-sum-square of weighted rule bands; so is the product band.
+**Noise.** Repeats of one version (the `run` field) give each rule a band: the largest spread within a context, capped at
+`max_rule_band` (profile, default 0.5) so no spread hides a rule's drop entirely. A deterministic rule on a pinned environment repeats
+identically (band 0, proven by an A/A run); timing rules need several runs; judged rules take their band from order-swap and repeat
+disagreement. A family band is the root-sum-square of weighted rule bands; so is the product band. **The gate takes noise from the base
+only**: the head is what is under test, and repeats it adds cannot widen its own tolerance.
 
 **Fair comparison.** Two versions are compared under one ruleset digest. When the ruleset changes, both versions are scored under both
 rulesets (a chain-linked index); a score is never compared across digests.
 
 ## 6. The gatekeeper, the ledger, anti-gaming
 
-**Ledger.** One SQLite table, append-only (triggers refuse UPDATE and DELETE), every row chained: `hash = sha256(prev || body)`. The engine
-recomputes the chain before every write and refuses a broken one, so an edit made behind the triggers' back is found. Score rows are
-exported as `scores.jsonl`, each line carrying `prev` = sha-256 of the line before; the copy committed on the trusted branch must stay a
-prefix (`ledger anchor`).
+**Ledger.** One SQLite table, append-only (triggers refuse UPDATE and DELETE), every row chained over its seq, kind, key, prev and body.
+The engine recomputes the chain before every write and refuses a broken one, so an edit made behind the triggers' back is found. A cut
+tail still chains by itself, so the chain **head** (seq and hash) is committed on the trusted branch and checked (`--anchor`). Score rows
+are exported as `scores.jsonl`, each line carrying `prev` = sha-256 of the line before; the copy committed on the trusted branch must
+stay a prefix (`ledger anchor`).
 
 **Gate** (`scoregraph gate --base <v> --head <v>`):
 - a **blocking** rule that passed on base and fails (or is partial) on head blocks, naming the rule and the feedback it closes (exit 10);
@@ -109,7 +112,15 @@ prefix (`ledger anchor`).
 **Anti-gaming** (each one red-proved by a test):
 - a head is scored under the **base** ruleset too, and the gate uses the worse comparison;
 - a rule is **looser** when it passes a fixture or an observed fact set the base rule fails; a loosening, a lower weight, a lower mode, a
-  retirement or a removal needs a `decision/1` record that is **already in the base ruleset** (a head cannot approve itself);
+  retirement or a removal needs a `decision/1` record that is **already in the base ruleset** (a head cannot approve itself), bound to
+  the exact versions (`from_version` -> `to_version`);
+- the **profile** is guarded the same way: a lower family weight, a family moved from block to warn, a lower overclaim penalty or a
+  higher noise cap needs a base decision naming the head profile's digest;
+- **limit**: looseness is measured, not proven. It is found only on the probes the engine has (both rules' fixtures and the facts of the
+  observations in the gate). A check loosened only for fact sets nobody has observed passes unnoticed until such an observation exists;
+  review rule diffs as code;
+- a bare outcome with no evidence ref and no stamp counts as `unmeasured`, and `rule accept` needs an evidenced fail on a version some
+  rule of the ruleset was observed on (an invented version is refused);
 - a changed rule with the same version number is refused;
 - the self-test catches a hollow check; a probe's outcome cannot override its own facts;
 - assertion counts per rule are recorded; fewer on head is reported;

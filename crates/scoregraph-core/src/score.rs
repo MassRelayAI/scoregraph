@@ -6,7 +6,7 @@
 //! family_score    = Σ w·s / Σ w            over measured rules
 //! family_floor    = Σ w·s / Σ w            over applicable rules, unmeasured counted as 0
 //! coverage        = measured rules / applicable rules
-//! family band     = sqrt(Σ (w·band)²) / Σ w over measured rules
+//! family band     = sqrt(Σ (w·band)²) / Σ w over measured rules (each rule band capped at `max_rule_band`, default 0.5)
 //! product_score   = Σ W_f·family_score / Σ W_f over measured families          (same for floor and band)
 //! proven_pct      = claimed features (has|partial) with a passing proof / features
 //! overclaims      = claimed has|partial, a proof was measured, and it is not a pass
@@ -119,7 +119,7 @@ fn letter(s: Option<f64>, all_blocked: bool) -> &'static str {
 }
 
 /// Score one rule over the observations that name it.
-fn score_rule(rule: &Rule, obs: &[&Observation], stamps: &Option<StampPolicy>, version: &str, counts: &mut BTreeMap<String, u64>) -> RuleScore {
+fn score_rule(rule: &Rule, obs: &[&Observation], stamps: &Option<StampPolicy>, version: &str, cap: f64, counts: &mut BTreeMap<String, u64>) -> RuleScore {
     let mut by_ctx: BTreeMap<String, Vec<Option<f64>>> = BTreeMap::new();
     let mut blocked = 0usize;
     let mut assertions = 0u64;
@@ -158,7 +158,8 @@ fn score_rule(rule: &Rule, obs: &[&Observation], stamps: &Option<StampPolicy>, v
         mode: rule.mode,
         letter: letter(score, all_blocked).into(),
         score,
-        band: round6(band),
+        // a rule's band is capped: no amount of repeat spread makes a rule's drop invisible
+        band: round6(band.min(cap)),
         contexts: by_ctx.len(),
         assertions,
     }
@@ -175,7 +176,7 @@ pub fn score(inp: &Input) -> Result<Score> {
     let mut rules = BTreeMap::new();
     for r in rs.active() {
         let obs: Vec<&Observation> = mine.iter().copied().filter(|o| o.rule.id == r.id).collect();
-        rules.insert(r.id.clone(), score_rule(r, &obs, &inp.stamps, inp.version, &mut counts));
+        rules.insert(r.id.clone(), score_rule(r, &obs, &inp.stamps, inp.version, rs.profile.max_rule_band(), &mut counts));
     }
     let known: BTreeSet<&str> = rs.rules.keys().map(String::as_str).collect();
     let stray = mine.iter().filter(|o| !known.contains(o.rule.id.as_str())).count();
@@ -352,8 +353,8 @@ mod tests {
         let o = [obs("quality.a", "a1", 12, "x", "1"), obs("quality.a", "a1", 2, "x", "2"), obs("quality.a", "a1", 12, "x", "3")];
         let s = run(&r, &o).unwrap();
         assert_eq!(s.rules["quality.a"].score, Some(1.0));
-        assert_eq!(s.rules["quality.a"].band, 1.0);
-        assert_eq!(s.product_band, 1.0);
+        assert_eq!(s.rules["quality.a"].band, 0.5, "a spread of 1 is capped at the default 0.5");
+        assert_eq!(s.product_band, 0.5);
         // deterministic and repeated identically: band 0
         let s = run(&r, &[obs("quality.a", "a1", 12, "x", "1"), obs("quality.a", "a1", 12, "x", "2")]).unwrap();
         assert_eq!(s.product_band, 0.0);
